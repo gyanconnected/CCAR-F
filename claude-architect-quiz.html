@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Architect Practice Quiz</title>
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--ink:#1b2430;--mute:#5d6b7d;--line:#d6dde6;--acc:#0f6b73;--acc-ink:#fff;--ok:#1d7a46;--okbg:#e4f4ea;--bad:#b3261e;--badbg:#fbe9e7}
+@media(prefers-color-scheme:dark){:root{--bg:#12171d;--card:#1b222b;--ink:#e6ebf1;--mute:#97a4b4;--line:#2d3744;--acc:#4fb6bf;--acc-ink:#0b1216;--ok:#5cc88a;--okbg:#17301f;--bad:#ff8a80;--badbg:#3a1d1b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 64px}
+h1{font:600 1.7rem/1.2 Georgia,"Iowan Old Style",serif;margin:8px 0 4px}
+.sub{color:var(--mute);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px}
+label{display:block;font-weight:600;margin:14px 0 4px}
+select,button,input[type=file]{font:inherit}
+select{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.chk{display:flex;gap:8px;align-items:center;font-weight:400;margin-top:14px}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px 16px;border-radius:6px}
+button.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
+button:focus-visible,select:focus-visible,.opt:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:6px 0 18px}
+.bar i{display:block;height:100%;background:var(--acc);transition:width .25s}
+.meta{display:flex;justify-content:space-between;color:var(--mute);font-size:.9rem}
+.q{font:1.2rem/1.5 Georgia,"Iowan Old Style",serif;margin:0 0 16px;white-space:pre-wrap}
+.opt{display:flex;gap:12px;width:100%;text-align:left;margin:0 0 10px;padding:12px 14px;border-radius:8px;line-height:1.45}
+.opt b{min-width:1.4em;color:var(--acc)}
+.opt:hover:not(:disabled){border-color:var(--acc)}
+.opt:disabled{cursor:default;color:var(--ink)}
+.opt.ok{background:var(--okbg);border-color:var(--ok)}.opt.ok b{color:var(--ok)}
+.opt.bad{background:var(--badbg);border-color:var(--bad)}.opt.bad b{color:var(--bad)}
+.exp{margin-top:14px;padding:12px 14px;border-left:4px solid var(--acc);background:var(--bg);border-radius:0 6px 6px 0}
+.row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+code{font:.88em ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);padding:1px 5px;border-radius:4px}
+.score{font:600 3rem/1 Georgia,serif;margin:6px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0}
+td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);font-weight:400}
+.miss{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.err{color:var(--bad)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>Claude Architect: Foundations practice quiz</h1>
+<p class="sub">Questions come from the community exam on GitHub. Unofficial, so it may not match the real exam.</p>
+<div id="app" class="card">Loading questions from GitHub...</div>
+</main>
+<script>
+const RAW = "https://raw.githubusercontent.com/OlivierAlter/Claude-Certified-Architect-Foundations-Certification-Exam/main/Claude%20Certification%20Exam.md";
+const app = document.getElementById("app");
+let ALL = [], DOMAINS = {}, quiz = [], idx = 0, answers = [], locked = false;
+
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const fmt = s => esc(s).replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
+
+function parse(md){
+  const heads = [...md.matchAll(/^## Domain (\d): (.+)$/gm)].map(m => ({i:m.index, n:+m[1], t:m[2].trim()}));
+  const marks = [...md.matchAll(/\*\*Q(\d+)\.\*\*/g)];
+  const out = [];
+  marks.forEach((m,k) => {
+    const blk = md.slice(m.index + m[0].length, k+1 < marks.length ? marks[k+1].index : md.length);
+    const cm = blk.match(/\*\*Correct Answer:\s*([A-D])\*\*/);
+    if(!cm) return;
+    const body = blk.slice(0, cm.index);
+    const exp = blk.slice(cm.index + cm[0].length).split(/\n---|\n#{2,3} /)[0].trim();
+    const oi = body.search(/(^|\s)A\)\s/);
+    if(oi < 0) return;
+    const stem = body.slice(0, oi).trim();
+    const optText = body.slice(oi);
+    const re = /(?:^|\s)([A-D])\)\s+/g, pos = [];
+    let r; while((r = re.exec(optText))) pos.push({L:r[1], s:r.index, e:re.lastIndex});
+    if(pos.length !== 4) return;
+    const opts = pos.map((p,j) => optText.slice(p.e, j+1 < pos.length ? pos[j+1].s : undefined).trim());
+    const h = heads.filter(x => x.i < m.index).pop();
+    out.push({num:+m[1], stem, opts, ans:"ABCD".indexOf(cm[1]), exp, dom:h ? h.n : 0});
+    if(h) DOMAINS[h.n] = h.t;
+  });
+  return out;
+}
+
+function load(md){
+  ALL = parse(md);
+  if(!ALL.length){ app.innerHTML = '<p class="err">Could not find any questions in that file.</p>'; return; }
+  setup();
+}
+
+async function init(){
+  try{
+    const res = await fetch(RAW);
+    if(!res.ok) throw new Error(res.status);
+    load(await res.text());
+  }catch(e){
+    app.innerHTML = '<p class="err">Could not load the exam from GitHub (' + esc(String(e.message||e)) + ').</p>' +
+      '<p>Download the raw <code>Claude Certification Exam.md</code> file from the repo and choose it here:</p>' +
+      '<input type="file" id="f" accept=".md,.txt">';
+    document.getElementById("f").onchange = ev => {
+      const file = ev.target.files[0]; if(!file) return;
+      const rd = new FileReader(); rd.onload = () => load(rd.result); rd.readAsText(file);
+    };
+  }
+}
+
+function setup(){
+  const opts = Object.keys(DOMAINS).sort().map(n => `<option value="${n}">Domain ${n}: ${esc(DOMAINS[n])}</option>`).join("");
+  app.innerHTML = `<p><b>${ALL.length}</b> questions loaded.</p>
+    <label for="dom">Domain</label>
+    <select id="dom"><option value="0">All domains</option>${opts}</select>
+    <label for="cnt">Number of questions</label>
+    <select id="cnt"><option>10</option><option>20</option><option>40</option><option value="999">All</option></select>
+    <label class="chk"><input type="checkbox" id="shuf" checked> Shuffle question order</label>
+    <div class="row"><button class="pri" id="go">Start quiz</button></div>`;
+  document.getElementById("go").onclick = () => {
+    const d = +document.getElementById("dom").value;
+    let pool = ALL.filter(q => !d || q.dom === d);
+    if(document.getElementById("shuf").checked) pool = shuffle(pool.slice());
+    start(pool.slice(0, +document.getElementById("cnt").value));
+  };
+}
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+function start(list){ quiz = list; idx = 0; answers = []; show(); }
+
+function show(){
+  const q = quiz[idx]; locked = false;
+  app.innerHTML = `<div class="meta"><span>Question ${idx+1} of ${quiz.length}</span><span>Domain ${q.dom} (Q${q.num})</span></div>
+    <div class="bar"><i style="width:${idx/quiz.length*100}%"></i></div>
+    <p class="q">${fmt(q.stem)}</p>
+    <div id="opts">${q.opts.map((o,i)=>`<button class="opt" data-i="${i}"><b>${"ABCD"[i]}</b><span>${fmt(o)}</span></button>`).join("")}</div>
+    <div id="fb"></div>`;
+  app.querySelectorAll(".opt").forEach(b => b.onclick = () => pick(+b.dataset.i));
+}
+
+function pick(i){
+  if(locked) return; locked = true;
+  const q = quiz[idx]; answers[idx] = i;
+  app.querySelectorAll(".opt").forEach((b,k) => {
+    b.disabled = true;
+    if(k === q.ans) b.classList.add("ok"); else if(k === i) b.classList.add("bad");
+  });
+  const last = idx + 1 === quiz.length;
+  document.getElementById("fb").innerHTML = `<div class="exp"><b>${i===q.ans?"Correct.":"Incorrect. The answer is "+"ABCD"[q.ans]+"."}</b><br>${fmt(q.exp)}</div>
+    <div class="row"><button class="pri" id="nx">${last?"See results":"Next question"}</button></div>`;
+  const nx = document.getElementById("nx"); nx.focus();
+  nx.onclick = () => { idx++; idx < quiz.length ? show() : results(); };
+}
+
+function results(){
+  const right = quiz.filter((q,i) => answers[i] === q.ans).length;
+  const pct = Math.round(right / quiz.length * 100);
+  const by = {};
+  quiz.forEach((q,i) => { const d = by[q.dom] = by[q.dom] || {r:0,t:0}; d.t++; if(answers[i]===q.ans) d.r++; });
+  const missed = quiz.filter((q,i) => answers[i] !== q.ans);
+  app.innerHTML = `<div class="meta"><span>Results</span></div>
+    <div class="score">${pct}%</div><p>${right} of ${quiz.length} correct.</p>
+    <table><tr><th>Domain</th><th>Score</th></tr>${Object.keys(by).sort().map(n=>`<tr><td>${n}: ${esc(DOMAINS[n]||"")}</td><td>${by[n].r} / ${by[n].t}</td></tr>`).join("")}</table>
+    <div class="row">
+      ${missed.length?'<button class="pri" id="rm">Retry missed ('+missed.length+')</button>':""}
+      <button id="again">New quiz</button>
+    </div>
+    ${missed.length?'<div class="miss"><b>Missed questions</b>'+missed.map(q=>`<p><b>Q${q.num}.</b> ${fmt(q.stem)}<br><b>Answer ${"ABCD"[q.ans]}:</b> ${fmt(q.opts[q.ans])}</p>`).join("")+'</div>':""}`;
+  document.getElementById("again").onclick = setup;
+  if(missed.length) document.getElementById("rm").onclick = () => start(shuffle(missed.slice()));
+}
+
+document.addEventListener("keydown", e => {
+  const k = "abcd".indexOf(e.key.toLowerCase());
+  if(k >= 0 && e.key.length === 1 && document.querySelector(".opt") && !locked) pick(k);
+});
+
+init();
+</script>
+</body>
+</html>
